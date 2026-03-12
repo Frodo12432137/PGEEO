@@ -39,18 +39,16 @@ META_PATH  = OUTPUT_DIR / "model_meta.json"
 
 CONN_STR_PROGNOZA = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "Server=MISDWHPRD.GKPGE.PL;"
+    "Server=MISDWPPRD.GKPGE.PL;"
     "DATABASE=PGESA_MarketAnalytics;"
     "Trusted_Connection=yes;"
-    "TrustServerCertificate=yes;"
 )
 
 CONN_STR_WYKONANIE = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "Server=MISDWHPRD.GKPGE.PL;"
+    "Server=MISDWPPRD.GKPGE.PL;"
     "DATABASE=PGEEO_DDS;"
     "Trusted_Connection=yes;"
-    "TrustServerCertificate=yes;"
 )
 
 # ---------------------------------------------------------
