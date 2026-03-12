@@ -10,8 +10,12 @@ from pathlib import Path
 # KONFIG
 # ==============================================================================
 
-SQL_PROGNOZA  = r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL\pogodajankins.sql"
-SQL_WYKONANIE = r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL\wykonanie.sql"
+# ===== ZMIEŃ TĘ ŚCIEŻKĘ NA SWOJĄ =====
+SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
+# =============================================
+
+SQL_PATH_PROGNOZA  = SQL_DIR / "pogodajankins.sql"  # PRODUKCJA: używa najnowszej prognozy
+SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
 
 MODEL_PATH = r"C:\Users\10200871\Desktop\PGEEO\PV1\model_korekty_slonca.json"
 META_PATH  = r"C:\Users\10200871\Desktop\PGEEO\PV1\model_meta.json"
@@ -84,7 +88,6 @@ def add_features(df, lags, error_lags, forecast_lags, rolling_windows=None):
         df[f"forecast_lag_{lag}h"] = df.groupby("punkt")["Prognoza_Wm2"].shift(lag).fillna(0.0)
 
     # --- NOWOŚĆ V3: Statystyki Kroczące ---
-    # shift(1) gwarantuje brak data leakage
     for w in rolling_windows:
         df[f"rolling_mean_err_{w}h"] = df.groupby("punkt")["Error"].transform(
             lambda x: x.shift(1).rolling(w).mean()
@@ -148,28 +151,33 @@ def main():
     # --------------------------------------------------------------------------
     # PROGNOZA
     # --------------------------------------------------------------------------
-    df_prog = load_sql(SQL_PROGNOZA, "PGESA_MarketAnalytics")
+    df_prog = load_sql(SQL_PATH_PROGNOZA, "PGESA_MarketAnalytics")
 
-    df_prog["ts"] = ensure_tz(df_prog["dataGodzinaCET"])
+    # Normalizacja nazw kolumn do lowercase dla spójności i uniknięcia KeyErrors
+    df_prog.columns = [c.lower() for c in df_prog.columns]
+    
+    df_prog["ts"] = ensure_tz(df_prog["datagodzinacet"])
     df_prog = df_prog[df_prog["ts"].dt.minute == 0]
-    df_prog["dataGodzinaCET"] = floor_to_hour_warsaw(df_prog["ts"])
+    df_prog["datagodzinacet"] = floor_to_hour_warsaw(df_prog["ts"])
 
+    col_rad = "calkowitepromieniowanieslonecznenettogodzinowe"
     df_prog["Prognoza_Wm2"] = (
-        pd.to_numeric(df_prog["calkowitePromieniowanieSloneczneNettoGodzinowe"], errors="coerce").fillna(0.0) / 3600
+        pd.to_numeric(df_prog[col_rad], errors="coerce").fillna(0.0) / 3600
     )
     df_prog["temperatura"] = pd.to_numeric(df_prog["temperatura"], errors="coerce").fillna(0.0)
     df_prog["punkt"] = df_prog["punkt"].astype("string")
 
-    if "execId" not in df_prog.columns:
-        df_prog["execId"] = pd.Series([None] * len(df_prog), dtype="string")
-    df_prog["execId"] = df_prog["execId"].astype("string")
+    if "execid" not in df_prog.columns:
+        df_prog["execid"] = pd.Series([None] * len(df_prog), dtype="string")
+    df_prog["execid"] = df_prog["execid"].astype("string")
 
-    df_prog = df_prog[["punkt", "dataGodzinaCET", "Prognoza_Wm2", "temperatura", "execId"]]
+    df_prog = df_prog[["punkt", "datagodzinacet", "Prognoza_Wm2", "temperatura", "execid"]]
+    df_prog = df_prog.rename(columns={"datagodzinacet": "dataGodzinaCET", "execid": "execId"})
 
     # --------------------------------------------------------------------------
     # WYKONANIE
     # --------------------------------------------------------------------------
-    df_wyk = load_sql(SQL_WYKONANIE, "PGEEO_DDS")
+    df_wyk = load_sql(SQL_PATH_WYKONANIE, "PGEEO_DDS")
 
     df_wyk["Data"] = df_wyk["Data"].astype(str)
     df_wyk["Czas"] = df_wyk["Czas"].astype(str)

@@ -21,36 +21,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# KONFIGURACJA
-# ---------------------------------------------------------
-class Config:
-    BASE_DIR = Path.cwd()
+# ==============================================================================
+# KONFIG
+# ==============================================================================
 
-    # ===== ZMIEŃ TĆ ŚCIŹKĘ NA SWOJĄ =====
-    SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
-    # =============================================
-    SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql"  # Backtest używa historycznej bazy prognoz
-    SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
+# ===== ZMIEŃ TĘ ŚCIEŻKĘ NA SWOJĄ =====
+SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
+# =============================================
 
-    OUTPUT_DIR = BASE_DIR / "BACKTEST_RESULTS"
-    MODEL_INPUT_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1")
-    MODEL_PATH = MODEL_INPUT_DIR / "model_korekty_slonca_v3.json"
-    META_PATH = MODEL_INPUT_DIR / "model_meta_v3.json"
+SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql"  # Backtest używa historycznej bazy prognoz
+SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
 
-    CONN_STR_PROGNOZA = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        "Server=MISDWPPRD.GKPGE.PL;"
-        "DATABASE=PGESA_MarketAnalytics;"
-        "Trusted_Connection=yes;"
-    )
+# Folder z modelem V3
+MODEL_INPUT_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1")
+MODEL_PATH = MODEL_INPUT_DIR / "model_korekty_slonca.json" # W V3 meta/model są w głównym lub output_v3
+META_PATH  = MODEL_INPUT_DIR / "model_meta.json"
 
-    CONN_STR_WYKONANIE = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        "Server=MISDWPPRD.GKPGE.PL;"
-        "DATABASE=PGEEO_DDS;"
-        "Trusted_Connection=yes;"
-    )
+OUTPUT_DIR = Path.cwd() / "BACKTEST_RESULTS"
+
+CONN_STR_PROGNOZA = (
+    "DRIVER={ODBC Driver 17 for SQL Server};"
+    "Server=MISDWPPRD.GKPGE.PL;"
+    "DATABASE=PGESA_MarketAnalytics;"
+    "Trusted_Connection=yes;"
+)
+
+CONN_STR_WYKONANIE = (
+    "DRIVER={ODBC Driver 17 for SQL Server};"
+    "Server=MISDWPPRD.GKPGE.PL;"
+    "DATABASE=PGEEO_DDS;"
+    "Trusted_Connection=yes;"
+)
 
 # ---------------------------------------------------------
 # FUNKCJE POMOCNICZE
@@ -85,7 +86,7 @@ def nrmse(y_true, y_pred):
     return rmse, rmse / max(scale, 1e-6) * 100
 
 def add_features_v3(df, meta):
-    logger.info("Generowanie cech dla backtestu...")
+    logger.info("Generowanie cech dla backtestu (V3)...")
     
     hour = df["dataGodzinaCET"].dt.hour
     doy = df["dataGodzinaCET"].dt.dayofyear
@@ -108,7 +109,7 @@ def add_features_v3(df, meta):
     df["Target"] = df["Error"]
     
     # Lagi
-    lags = [1,2,3,6,12,24,48]
+    lags = meta.get("lags", [1,2,3,6,12,24,48])
     for lag in lags:
         df[f"lag_target_{lag}h"] = df.groupby("punkt")["Target"].shift(lag)
         df[f"lag_error_{lag}h"] = df.groupby("punkt")["Error"].shift(lag)
@@ -128,21 +129,21 @@ def add_features_v3(df, meta):
 # ---------------------------------------------------------
 
 def main():
-    logger.info("=== START BACKTEST PV MODEL PRO 2026 ===")
-    Config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("=== START BACKTEST PV MODEL PRO 2026 V3 ===")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # 0. LOAD META
-    if not Config.META_PATH.exists():
-        logger.error(f"Nie znaleziono pliku META: {Config.META_PATH}. Uruchom najpierw trening V3!")
+    if not Path(META_PATH).exists():
+        logger.error(f"Nie znaleziono pliku META: {META_PATH}. Uruchom najpierw trening V3!")
         return
-    with open(Config.META_PATH, "r", encoding="utf-8") as f:
+    with open(META_PATH, "r", encoding="utf-8") as f:
         meta = json.load(f)
     features = meta["features"]
 
-    # 1. LOAD DATA (Używa prognozapogody.sql z szerokim oknem)
+    # 1. LOAD DATA
     try:
-        df_prog = load_sql(Config.SQL_PATH_PROGNOZA, Config.CONN_STR_PROGNOZA)
-        df_wyk = load_sql(Config.SQL_PATH_WYKONANIE, Config.CONN_STR_WYKONANIE)
+        df_prog = load_sql(SQL_PATH_PROGNOZA, CONN_STR_PROGNOZA)
+        df_wyk  = load_sql(SQL_PATH_WYKONANIE, CONN_STR_WYKONANIE)
     except Exception as e:
         logger.error(f"Błąd ładowania danych: {e}")
         return
@@ -153,21 +154,23 @@ def main():
     df_prog = df_prog[df_prog["ts"].dt.minute == 0]
     df_prog["dataGodzinaCET"] = floor_to_hour_warsaw(df_prog["ts"])
     
-    # Obsługa nazwy kolumny – normalizujemy do lowercase dla spójności
+    # Obsługa nazwy kolumny
     df_prog.columns = [c.lower() for c in df_prog.columns]
     col_rad = "calkowitepromieniowanieslonecznenettogodzinowe"
     if col_rad not in df_prog.columns:
         raise KeyError(f"Nie znaleziono kolumny promieniowania. Dostępne: {list(df_prog.columns)}")
+        
     df_prog["Prognoza_Wm2"] = pd.to_numeric(df_prog[col_rad], errors="coerce").fillna(0.0) / 3600
     df_prog["temperatura"] = pd.to_numeric(df_prog["temperatura"], errors="coerce").fillna(0.0)
     df_prog["punkt"] = df_prog["punkt"].astype("string")
-    df_prog = df_prog[["punkt", "dataGodzinaCET", "Prognoza_Wm2", "temperatura"]]
+    df_prog = df_prog[["punkt", "datagodzinacet", "Prognoza_Wm2", "temperatura"]]
+    df_prog = df_prog.rename(columns={"datagodzinacet": "dataGodzinaCET"})
 
     df_wyk["ts"] = ensure_tz(df_wyk["Data"].astype(str) + " " + df_wyk["Czas"].astype(str))
     df_wyk = df_wyk[df_wyk["ts"].dt.minute == 0]
     df_wyk["dataGodzinaCET"] = floor_to_hour_warsaw(df_wyk["ts"])
     
-    # Filtr jakości wykonania (taki sam jak w predict) 
+    # Filtr jakości
     df_wyk["NaslonecznienieHistoria"] = pd.to_numeric(df_wyk["NaslonecznienieHistoria"], errors="coerce")
     df_wyk = df_wyk[(df_wyk["NaslonecznienieHistoria"] >= 0) & (df_wyk["NaslonecznienieHistoria"] < 2500)]
     
@@ -179,14 +182,14 @@ def main():
     df = df_prog.merge(df_wyk_h, on=["punkt", "dataGodzinaCET"], how="inner").sort_values(["punkt", "dataGodzinaCET"])
     df = add_features_v3(df, meta)
     
-    # Filtrowanie nocy (aby metryki były realne dla dnia)
+    # Filtrowanie nocy
     df = df[df["Prognoza_Wm2"] > 0]
     df = df.dropna(subset=features)
 
     # 4. PREDICTION
     logger.info("Uruchamianie symulacji modelu na danych historycznych...")
     model = xgb.XGBRegressor()
-    model.load_model(str(Config.MODEL_PATH))
+    model.load_model(str(MODEL_PATH))
     
     df["punkt"] = df["punkt"].astype("category").cat.set_categories(meta["punkt_categories"])
     df["Korekta_ML"] = model.predict(df[features])
@@ -202,7 +205,7 @@ def main():
     logger.info(f"Historical Gain: {nrmse_b - nrmse_m:+.2f} pp")
 
     # 6. ZAPIS RAPORTU
-    report_path = Config.OUTPUT_DIR / "backtest_detailed_report.csv"
+    report_path = os.path.join(OUTPUT_DIR, "backtest_detailed_report.csv")
     cols_to_save = ["punkt", "dataGodzinaCET", "Prognoza_Wm2", "Actual_Wm2", "Prognoza_Finalna_ML", "Korekta_ML"]
     df[cols_to_save].to_csv(report_path, sep=";", decimal=",", index=False)
     
@@ -219,10 +222,10 @@ def main():
         })
     
     stats_df = pd.DataFrame(stats_per_punkt)
-    stats_path = Config.OUTPUT_DIR / "backtest_summary_per_punkt.csv"
+    stats_path = os.path.join(OUTPUT_DIR, "backtest_summary_per_punkt.csv")
     stats_df.to_csv(stats_path, sep=";", decimal=",", index=False)
 
-    logger.info(f"Raporty zapisane w: {Config.OUTPUT_DIR}")
+    logger.info(f"Raporty zapisane w: {OUTPUT_DIR}")
     logger.info("=== BACKTEST COMPLETED SUCCESS ===")
 
 if __name__ == "__main__":

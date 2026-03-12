@@ -21,37 +21,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# KONFIGURACJA (PROD-READY)
-# ---------------------------------------------------------
-class Config:
-    # Używamy pathlib dla przenośności między Windows/Linux
-    BASE_DIR = Path.cwd()
-    
-    # Ścieżki do skryptów SQL (można zmienić na relatywne)
-    SQL_DIR = BASE_DIR / "SQL"
-    SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql"
-    SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
+# ==============================================================================
+# KONFIG
+# ==============================================================================
 
-    # Ścieżki wyjściowe modelu
-    OUTPUT_DIR = BASE_DIR / "output"
-    MODEL_PATH = OUTPUT_DIR / "model_korekty_slonca.json"
-    META_PATH = OUTPUT_DIR / "model_meta.json"
+# ===== ZMIEŃ TĘ ŚCIEŻKĘ NA SWOJĄ =====
+SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
+# =============================================
 
-    # Connection Strings (Warto przenieść do zmiennych środowiskowych w pełnym PROD)
-    CONN_STR_PROGNOZA = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        "Server=MISDWPPRD.GKPGE.PL;"
-        "DATABASE=PGESA_MarketAnalytics;"
-        "Trusted_Connection=yes;"
-    )
+SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql"
+SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
 
-    CONN_STR_WYKONANIE = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        "Server=MISDWPPRD.GKPGE.PL;"
-        "DATABASE=PGEEO_DDS;"
-        "Trusted_Connection=yes;"
-    )
+# Folder wyjściowy modelu
+OUTPUT_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1")
+MODEL_PATH = OUTPUT_DIR / "model_korekty_slonca.json"
+META_PATH  = OUTPUT_DIR / "model_meta.json"
+
+CONN_STR_PROGNOZA = (
+    "DRIVER={ODBC Driver 17 for SQL Server};"
+    "Server=MISDWPPRD.GKPGE.PL;"
+    "DATABASE=PGESA_MarketAnalytics;"
+    "Trusted_Connection=yes;"
+)
+
+CONN_STR_WYKONANIE = (
+    "DRIVER={ODBC Driver 17 for SQL Server};"
+    "Server=MISDWPPRD.GKPGE.PL;"
+    "DATABASE=PGEEO_DDS;"
+    "Trusted_Connection=yes;"
+)
 
 # ---------------------------------------------------------
 # FUNKCJE POMOCNICZE
@@ -95,15 +93,13 @@ def time_split(df, frac=0.2):
 # ---------------------------------------------------------
 
 def main():
-    logger.info("=== START TRAINING MODEL PRO 2026 - IRRADIANCE CORRECTION ===")
-
-    # Tworzenie folderu na wynik jeśli nie istnieje
-    Config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("=== START TRAINING MODEL PRO 2026 V2 - IRRADIANCE CORRECTION ===")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # 1. LOAD DATA
     try:
-        df_prog = load_sql(Config.SQL_PATH_PROGNOZA, Config.CONN_STR_PROGNOZA)
-        df_wyk = load_sql(Config.SQL_PATH_WYKONANIE, Config.CONN_STR_WYKONANIE)
+        df_prog = load_sql(SQL_PATH_PROGNOZA, CONN_STR_PROGNOZA)
+        df_wyk  = load_sql(SQL_PATH_WYKONANIE, CONN_STR_WYKONANIE)
     except Exception as e:
         logger.error(f"Błąd podczas ładowania danych: {e}")
         return
@@ -120,16 +116,13 @@ def main():
 
     df_prog["temperatura"] = pd.to_numeric(df_prog["temperatura"], errors="coerce").fillna(0)
     df_prog["punkt"] = df_prog["punkt"].astype("string")
-
     df_prog = df_prog[["punkt", "dataGodzinaCET", "Prognoza_Wm2", "temperatura"]]
 
     # 3. WYKONANIE
     logger.info("Przetwarzanie danych wykonania...")
     df_wyk["Data"] = df_wyk["Data"].astype(str)
     df_wyk["Czas"] = df_wyk["Czas"].astype(str)
-
-    combined = df_wyk["Data"] + " " + df_wyk["Czas"]
-    df_wyk["ts"] = ensure_tz(combined)
+    df_wyk["ts"] = ensure_tz(df_wyk["Data"] + " " + df_wyk["Czas"])
 
     df_wyk = df_wyk[df_wyk["ts"].dt.minute == 0]
     df_wyk["dataGodzinaCET"] = floor_to_hour_warsaw(df_wyk["ts"])
@@ -158,8 +151,7 @@ def main():
     df = df.sort_values(["punkt", "dataGodzinaCET"])
     df = df.dropna(subset=["Actual_Wm2"])
 
-    # --- OPTYMALIZACJA: FILTROWANIE NOCY ---
-    # Model uczy się tylko wtedy, gdy prognozowane jest słońce (> 0 Wm2)
+    # Filtrowanie nocy
     morning_records = len(df)
     df = df[df["Prognoza_Wm2"] > 0]
     logger.info(f"Filtrowanie nocy: usunięto {morning_records - len(df)} rekordów nocnych.")
@@ -179,10 +171,8 @@ def main():
 
     df["temperatura_24"] = df.groupby("punkt")["temperatura"].shift(24)
 
-    # Parametry lagów - Uwaga: należy sprawdzić opóźnienie danych SCADA w prod!
+    # Parametry lagów
     lags = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,24,30,36,48]
-    
-    # Lag TARGET (poprawki)
     for lag in lags:
         df[f"lag_{lag}h"] = df.groupby("punkt")["Target"].shift(lag)
     lag_cols = [f"lag_{l}h" for l in lags]
@@ -257,8 +247,8 @@ def main():
     logger.info(f"Gain: {(nrmse_m - nrmse_b):+.2f} pp")
 
     # 9. SAVE MODEL + META
-    logger.info(f"Zapisywanie modelu do: {Config.MODEL_PATH}")
-    model.save_model(str(Config.MODEL_PATH))
+    logger.info(f"Zapisywanie modelu do: {MODEL_PATH}")
+    model.save_model(str(MODEL_PATH))
 
     meta = {
         "features": features,
@@ -270,10 +260,10 @@ def main():
         }
     }
 
-    with open(Config.META_PATH, "w", encoding="utf-8") as f:
+    with open(META_PATH, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
 
-    logger.info("=== MODEL PRO 2026 - READY FOR PRODUCTION ===")
+    logger.info("=== MODEL PRO 2026 V2 - READY FOR PRODUCTION ===")
 
 if __name__ == "__main__":
     main()
