@@ -24,8 +24,9 @@ OUTPUT_DIR = r"C:\Users\10200871\Desktop\PGEEO\PV1\OUT"
 
 CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "Server=MISDWPPRD.GKPGE.PL;"
+    "Server=MISDWHPRD.GKPGE.PL;"
     "Trusted_Connection=yes;"
+    "TrustServerCertificate=yes;"
 )
 
 MIN_HISTORY_HOURS = 90 * 24
