@@ -104,14 +104,17 @@ def main():
         logger.error(f"Błąd podczas ładowania danych: {e}")
         return
 
+    # Normalize column names to lowercase
+    df_prog.columns = [c.lower() for c in df_prog.columns]
+
     # 2. PROGNOZA
     logger.info("Przetwarzanie danych prognozy...")
-    df_prog["ts"] = ensure_tz(df_prog["dataGodzinaCET"])
+    df_prog["ts"] = ensure_tz(df_prog["datagodzinacet"])
     df_prog = df_prog[df_prog["ts"].dt.minute == 0]
     df_prog["dataGodzinaCET"] = floor_to_hour_warsaw(df_prog["ts"])
 
     df_prog["Prognoza_Wm2"] = (
-        df_prog["CalkowitePromieniowanieSloneczneNettoGodzinowe"] / 3600
+        df_prog["calkowitepromieniowanieslonecznenettogodzinowe"] / 3600
     )
 
     df_prog["temperatura"] = pd.to_numeric(df_prog["temperatura"], errors="coerce").fillna(0)
