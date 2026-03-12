@@ -174,28 +174,27 @@ def main():
     df_prog = df_prog[["punkt", "datagodzinacet", "Prognoza_Wm2", "temperatura", "execid"]]
     df_prog = df_prog.rename(columns={"datagodzinacet": "dataGodzinaCET", "execid": "execId"})
 
-    # --------------------------------------------------------------------------
-    # WYKONANIE
-    # --------------------------------------------------------------------------
-    df_wyk = load_sql(SQL_PATH_WYKONANIE, "PGEEO_DDS")
+    # 178: # WYKONANIE
+    # 180: df_wyk = load_sql(SQL_PATH_WYKONANIE, "PGEEO_DDS")
+    df_wyk.columns = [c.lower() for c in df_wyk.columns]
 
-    df_wyk["Data"] = df_wyk["Data"].astype(str)
-    df_wyk["Czas"] = df_wyk["Czas"].astype(str)
-    df_wyk["ts"] = ensure_tz(df_wyk["Data"] + " " + df_wyk["Czas"])
+    df_wyk["data"] = df_wyk["data"].astype(str)
+    df_wyk["czas"] = df_wyk["czas"].astype(str)
+    df_wyk["ts"] = ensure_tz(df_wyk["data"] + " " + df_wyk["czas"])
 
     df_wyk = df_wyk[df_wyk["ts"].dt.minute == 0]
     df_wyk["dataGodzinaCET"] = floor_to_hour_warsaw(df_wyk["ts"])
 
     # Filtr jakości
     df_wyk = df_wyk[
-        (pd.to_numeric(df_wyk["NaslonecznienieHistoria"], errors="coerce") >= 0) &
-        (pd.to_numeric(df_wyk["NaslonecznienieHistoria"], errors="coerce") < 2500)
+        (pd.to_numeric(df_wyk["naslonecznieniehistoria"], errors="coerce") >= 0) &
+        (pd.to_numeric(df_wyk["naslonecznieniehistoria"], errors="coerce") < 2500)
     ]
 
     df_wyk_h = (
-        df_wyk.groupby(["NazwaFarmy", "dataGodzinaCET"])["NaslonecznienieHistoria"]
+        df_wyk.groupby(["nazwafarmy", "dataGodzinaCET"])["naslonecznieniehistoria"]
         .mean().reset_index()
-        .rename(columns={"NazwaFarmy": "punkt", "NaslonecznienieHistoria": "Actual_Wm2"})
+        .rename(columns={"nazwafarmy": "punkt", "naslonecznieniehistoria": "Actual_Wm2"})
     )
     df_wyk_h["punkt"] = df_wyk_h["punkt"].astype("string")
 

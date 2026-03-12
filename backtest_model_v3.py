@@ -144,6 +144,10 @@ def main():
     try:
         df_prog = load_sql(SQL_PATH_PROGNOZA, CONN_STR_PROGNOZA)
         df_wyk  = load_sql(SQL_PATH_WYKONANIE, CONN_STR_WYKONANIE)
+        
+        # Normalize column names
+        df_prog.columns = [c.lower() for c in df_prog.columns]
+        df_wyk.columns = [c.lower() for c in df_wyk.columns]
     except Exception as e:
         logger.error(f"Błąd ładowania danych: {e}")
         return
@@ -166,16 +170,16 @@ def main():
     df_prog = df_prog[["punkt", "datagodzinacet", "Prognoza_Wm2", "temperatura"]]
     df_prog = df_prog.rename(columns={"datagodzinacet": "dataGodzinaCET"})
 
-    df_wyk["ts"] = ensure_tz(df_wyk["Data"].astype(str) + " " + df_wyk["Czas"].astype(str))
+    df_wyk["ts"] = ensure_tz(df_wyk["data"].astype(str) + " " + df_wyk["czas"].astype(str))
     df_wyk = df_wyk[df_wyk["ts"].dt.minute == 0]
     df_wyk["dataGodzinaCET"] = floor_to_hour_warsaw(df_wyk["ts"])
     
     # Filtr jakości
-    df_wyk["NaslonecznienieHistoria"] = pd.to_numeric(df_wyk["NaslonecznienieHistoria"], errors="coerce")
-    df_wyk = df_wyk[(df_wyk["NaslonecznienieHistoria"] >= 0) & (df_wyk["NaslonecznienieHistoria"] < 2500)]
+    df_wyk["naslonecznieniehistoria"] = pd.to_numeric(df_wyk["naslonecznieniehistoria"], errors="coerce")
+    df_wyk = df_wyk[(df_wyk["naslonecznieniehistoria"] >= 0) & (df_wyk["naslonecznieniehistoria"] < 2500)]
     
-    df_wyk_h = df_wyk.groupby(["NazwaFarmy", "dataGodzinaCET"])["NaslonecznienieHistoria"].mean().reset_index()
-    df_wyk_h = df_wyk_h.rename(columns={"NazwaFarmy": "punkt", "NaslonecznienieHistoria": "Actual_Wm2"})
+    df_wyk_h = df_wyk.groupby(["nazwafarmy", "dataGodzinaCET"])["naslonecznieniehistoria"].mean().reset_index()
+    df_wyk_h = df_wyk_h.rename(columns={"nazwafarmy": "punkt", "naslonecznieniehistoria": "Actual_Wm2"})
     df_wyk_h["punkt"] = df_wyk_h["punkt"].astype("string")
 
     # 3. MERGE + FEATURES

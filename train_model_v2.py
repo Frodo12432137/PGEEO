@@ -106,6 +106,7 @@ def main():
 
     # Normalize column names to lowercase
     df_prog.columns = [c.lower() for c in df_prog.columns]
+    df_wyk.columns = [c.lower() for c in df_wyk.columns]
 
     # 2. PROGNOZA
     logger.info("Przetwarzanie danych prognozy...")
@@ -123,20 +124,20 @@ def main():
 
     # 3. WYKONANIE
     logger.info("Przetwarzanie danych wykonania...")
-    df_wyk["Data"] = df_wyk["Data"].astype(str)
-    df_wyk["Czas"] = df_wyk["Czas"].astype(str)
-    df_wyk["ts"] = ensure_tz(df_wyk["Data"] + " " + df_wyk["Czas"])
+    df_wyk["data"] = df_wyk["data"].astype(str)
+    df_wyk["czas"] = df_wyk["czas"].astype(str)
+    df_wyk["ts"] = ensure_tz(df_wyk["data"] + " " + df_wyk["czas"])
 
     df_wyk = df_wyk[df_wyk["ts"].dt.minute == 0]
     df_wyk["dataGodzinaCET"] = floor_to_hour_warsaw(df_wyk["ts"])
 
     df_wyk_hour = (
-        df_wyk.groupby(["NazwaFarmy", "dataGodzinaCET"])["NaslonecznienieHistoria"]
+        df_wyk.groupby(["nazwafarmy", "dataGodzinaCET"])["naslonecznieniehistoria"]
         .mean()
         .reset_index()
         .rename(columns={
-            "NazwaFarmy": "punkt",
-            "NaslonecznienieHistoria": "Actual_Wm2"
+            "nazwafarmy": "punkt",
+            "naslonecznieniehistoria": "Actual_Wm2"
         })
     )
     df_wyk_hour["punkt"] = df_wyk_hour["punkt"].astype("string")
