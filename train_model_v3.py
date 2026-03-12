@@ -1,66 +1,41 @@
 import os
 import json
-import logging
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import xgboost as xgb
 import pyodbc
 from sklearn.metrics import mean_squared_error
-import matplotlib.pyplot as plt
 
-# ---------------------------------------------------------
-# LOGGING SETUP
-# ---------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("model_training_v3.log", encoding="utf-8")
-    ]
+# ==============================================================================
+# KONFIG
+# ==============================================================================
+
+SQL_PATH_PROGNOZA = r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL\prognozapogody.sql"
+SQL_PATH_WYKONANIE = r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL\wykonanie.sql"
+
+MODEL_PATH = r"C:\Users\10200871\Desktop\PGEEO\PV1\model_korekty_slonca.json"
+META_PATH  = r"C:\Users\10200871\Desktop\PGEEO\PV1\model_meta.json"
+
+CONN_STR_PROGNOZA = (
+    "DRIVER={ODBC Driver 17 for SQL Server};"
+    "Server=MISDWPPRD.GKPGE.PL;"
+    "DATABASE=PGESA_MarketAnalytics;"
+    "Trusted_Connection=yes;"
 )
-logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# KONFIGURACJA
-# ---------------------------------------------------------
-class Config:
-    BASE_DIR = Path.cwd()
+CONN_STR_WYKONANIE = (
+    "DRIVER={ODBC Driver 17 for SQL Server};"
+    "Server=MISDWPPRD.GKPGE.PL;"
+    "DATABASE=PGEEO_DDS;"
+    "Trusted_Connection=yes;"
+)
 
-    # ===== ZMIEŃ TĆ ŚCIŹKĘ NA SWOJĄ =====
-    SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
-    # =============================================
-    SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql"
-    SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
-
-    OUTPUT_DIR = BASE_DIR / "output_v3"
-    MODEL_PATH = OUTPUT_DIR / "model_korekty_slonca_v3.json"
-    META_PATH = OUTPUT_DIR / "model_meta_v3.json"
-    IMPORTANCE_PLOT_PATH = OUTPUT_DIR / "feature_importance.png"
-
-    CONN_STR_PROGNOZA = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        "Server=MISDWPPRD.GKPGE.PL;"
-        "DATABASE=PGESA_MarketAnalytics;"
-        "Trusted_Connection=yes;"
-    )
-
-    CONN_STR_WYKONANIE = (
-        "DRIVER={ODBC Driver 17 for SQL Server};"
-        "Server=MISDWPPRD.GKPGE.PL;"
-        "DATABASE=PGEEO_DDS;"
-        "Trusted_Connection=yes;"
-    )
-
-# ---------------------------------------------------------
-# FUNKCJE POMOCNICZE
-# ---------------------------------------------------------
+# ==============================================================================
+# FUNKCJE
+# ==============================================================================
 
 def load_sql(path, conn):
-    logger.info(f"Ładowanie SQL z: {path}")
-    if not path.exists():
-        raise FileNotFoundError(f"Nie znaleziono pliku SQL: {path}")
     with open(path, "r", encoding="utf-8") as f:
         q = f.read()
     with pyodbc.connect(conn) as c:
@@ -89,152 +64,176 @@ def time_split(df, frac=0.2):
     cut = int(len(df) * (1 - frac))
     return df.iloc[:cut].copy(), df.iloc[cut:].copy()
 
-# ---------------------------------------------------------
+# ==============================================================================
 # MAIN
-# ---------------------------------------------------------
+# ==============================================================================
 
 def main():
-    logger.info("=== START TRAINING MODEL PRO 2026 V3 - ADVANCED FEATURES ===")
-    Config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print("\n=== TRAINING MODEL PRO 2026 V3 - IRRADIANCE CORRECTION ===\n")
 
     # 1. LOAD DATA
-    try:
-        df_prog = load_sql(Config.SQL_PATH_PROGNOZA, Config.CONN_STR_PROGNOZA)
-        df_wyk = load_sql(Config.SQL_PATH_WYKONANIE, Config.CONN_STR_WYKONANIE)
-    except Exception as e:
-        logger.error(f"Błąd podczas ładowania danych: {e}")
-        return
+    df_prog = load_sql(SQL_PATH_PROGNOZA, CONN_STR_PROGNOZA)
+    df_wyk  = load_sql(SQL_PATH_WYKONANIE, CONN_STR_WYKONANIE)
 
-    # 2. PROGNOZA & WYKONANIE PREPROCESSING
-    logger.info("Przetwarzanie danych...")
+    # 2. PROGNOZA
     df_prog["ts"] = ensure_tz(df_prog["dataGodzinaCET"])
     df_prog = df_prog[df_prog["ts"].dt.minute == 0]
     df_prog["dataGodzinaCET"] = floor_to_hour_warsaw(df_prog["ts"])
-    # Normalizacja nazw kolumn do lowercase dla spójności z predict i backtest
-    df_prog.columns = [c.lower() for c in df_prog.columns]
-    col_rad = "calkowitepromieniowanieslonecznenettogodzinowe"
-    df_prog["Prognoza_Wm2"] = pd.to_numeric(df_prog[col_rad], errors="coerce").fillna(0.0) / 3600
+
+    df_prog["Prognoza_Wm2"] = (
+        df_prog["CalkowitePromieniowanieSloneczneNettoGodzinowe"] / 3600
+    )
     df_prog["temperatura"] = pd.to_numeric(df_prog["temperatura"], errors="coerce").fillna(0)
     df_prog["punkt"] = df_prog["punkt"].astype("string")
     df_prog = df_prog[["punkt", "dataGodzinaCET", "Prognoza_Wm2", "temperatura"]]
 
-    df_wyk["ts"] = ensure_tz(df_wyk["Data"].astype(str) + " " + df_wyk["Czas"].astype(str))
+    # 3. WYKONANIE
+    df_wyk["Data"] = df_wyk["Data"].astype(str)
+    df_wyk["Czas"] = df_wyk["Czas"].astype(str)
+    df_wyk["ts"] = ensure_tz(df_wyk["Data"] + " " + df_wyk["Czas"])
     df_wyk = df_wyk[df_wyk["ts"].dt.minute == 0]
     df_wyk["dataGodzinaCET"] = floor_to_hour_warsaw(df_wyk["ts"])
-    df_wyk_hour = df_wyk.groupby(["NazwaFarmy", "dataGodzinaCET"])["NaslonecznienieHistoria"].mean().reset_index()
-    df_wyk_hour = df_wyk_hour.rename(columns={"NazwaFarmy": "punkt", "NaslonecznienieHistoria": "Actual_Wm2"})
+
+    df_wyk_hour = (
+        df_wyk.groupby(["NazwaFarmy", "dataGodzinaCET"])["NaslonecznienieHistoria"]
+        .mean().reset_index()
+        .rename(columns={"NazwaFarmy": "punkt", "NaslonecznienieHistoria": "Actual_Wm2"})
+    )
     df_wyk_hour["punkt"] = df_wyk_hour["punkt"].astype("string")
 
-    # 3. MERGE & CLEANUP
+    # 3B. 3 MONTH HISTORY FILTER
+    hist_hours = df_wyk_hour.groupby("punkt")["dataGodzinaCET"].count()
+    eligible_points = set(hist_hours[hist_hours >= 90*24].index)
+    df_prog     = df_prog[df_prog["punkt"].isin(eligible_points)]
+    df_wyk_hour = df_wyk_hour[df_wyk_hour["punkt"].isin(eligible_points)]
+
+    # 4. MERGE
     df = df_prog.merge(df_wyk_hour, on=["punkt", "dataGodzinaCET"], how="inner")
     df = df.sort_values(["punkt", "dataGodzinaCET"])
     df = df.dropna(subset=["Actual_Wm2"])
-    
-    # Filtrowanie nocy - tylko gdy słońce realnie świeci
-    df = df[df["Prognoza_Wm2"] > 0]
-    df["Target"] = df["Actual_Wm2"] - df["Prognoza_Wm2"]
-    df["Error"] = df["Actual_Wm2"] - df["Prognoza_Wm2"] # Identical to target in this case
 
-    # 4. ADVANCED FEATURE ENGINEERING
-    logger.info("Generowanie zaawansowanych cech...")
-    
-    # Cykliczność
+    # --- NOWOŚĆ V3: Filtrowanie nocy ---
+    df = df[df["Prognoza_Wm2"] > 0]
+
+    df["Target"] = df["Actual_Wm2"] - df["Prognoza_Wm2"]
+    df["Error"]  = df["Actual_Wm2"] - df["Prognoza_Wm2"]
+
+    # 5. FEATURES
     doy = df["dataGodzinaCET"].dt.dayofyear
     is_leap = df["dataGodzinaCET"].dt.is_leap_year
     year_len = np.where(is_leap, 366, 365)
+
     df["hour_sin"] = np.sin(2*np.pi * df["dataGodzinaCET"].dt.hour / 24)
     df["hour_cos"] = np.cos(2*np.pi * df["dataGodzinaCET"].dt.hour / 24)
-    df["day_sin"] = np.sin(2*np.pi * doy / year_len)
-    df["day_cos"] = np.cos(2*np.pi * doy / year_len)
+    df["day_sin"]  = np.sin(2*np.pi * doy / year_len)
+    df["day_cos"]  = np.cos(2*np.pi * doy / year_len)
     df["temperatura_24"] = df.groupby("punkt")["temperatura"].shift(24)
 
-    # Rozbudowane Lagi
-    lags = [1,2,3,6,12,24,48]
-    lag_cols = []
+    # Lagi targetu
+    lags = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,24,30,36,48]
     for lag in lags:
-        c_target = f"lag_target_{lag}h"
-        c_error = f"lag_error_{lag}h"
-        df[c_target] = df.groupby("punkt")["Target"].shift(lag)
-        df[c_error] = df.groupby("punkt")["Error"].shift(lag)
-        lag_cols.extend([c_target, c_error])
+        df[f"lag_{lag}h"] = df.groupby("punkt")["Target"].shift(lag)
+    lag_cols = [f"lag_{l}h" for l in lags]
 
-    # --- NOWOŚĆ: STATYSTYKI KROCZĄCE (ROLLING WINDOWS) ---
-    logger.info("Obliczanie statystyk kroczących...")
+    # Lagi błędu
+    error_lags = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,24,30,36,48]
+    for lag in error_lags:
+        df[f"error_lag_{lag}h"] = df.groupby("punkt")["Error"].shift(lag)
+    error_lag_cols = [f"error_lag_{l}h" for l in error_lags]
+
+    # Lagi prognozy
+    forecast_lags = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,24,30,36,48]
+    for lag in forecast_lags:
+        df[f"forecast_lag_{lag}h"] = df.groupby("punkt")["Prognoza_Wm2"].shift(lag)
+    forecast_lag_cols = [f"forecast_lag_{l}h" for l in forecast_lags]
+
+    # --- NOWOŚĆ V3: Statystyki Kroczące ---
     rolling_windows = [3, 6, 12]
     rolling_cols = []
-    
     for w in rolling_windows:
-        # Średnia i odchylenie z błędu (Error)
         c_mean = f"rolling_mean_err_{w}h"
-        c_std = f"rolling_std_err_{w}h"
-        # Używamy shift(1), aby uniknąć data leakage (nie znamy błędu z obecnej godziny)
+        c_std  = f"rolling_std_err_{w}h"
         df[c_mean] = df.groupby("punkt")["Error"].transform(lambda x: x.shift(1).rolling(w).mean())
-        df[c_std] = df.groupby("punkt")["Error"].transform(lambda x: x.shift(1).rolling(w).std())
+        df[c_std]  = df.groupby("punkt")["Error"].transform(lambda x: x.shift(1).rolling(w).std())
         rolling_cols.extend([c_mean, c_std])
 
-    # 5. FINALNA LISTA CECH
-    features = (
-        ["Prognoza_Wm2", "punkt", "hour_sin", "hour_cos", "day_sin", "day_cos", "temperatura", "temperatura_24"]
-        + lag_cols
-        + rolling_cols
-    )
-
-    df = df.dropna(subset=features)
+    df = df.dropna(subset=lag_cols + error_lag_cols + forecast_lag_cols + rolling_cols + ["temperatura_24"])
+    df = df.groupby("punkt").apply(lambda g: g.iloc[48:]).reset_index(drop=True)
     df["punkt"] = df["punkt"].astype("category")
-    logger.info(f"Liczba rekordów po generowaniu cech: {len(df)}")
+
+    print(f"\nFinal training records: {len(df)}")
 
     # 6. TRAIN/TEST SPLIT
     train, test = time_split(df)
 
-    # 7. MODEL TRAINING
-    logger.info("Rozpoczynanie treningu XGBoost (v3)...")
+    features = (
+        ["Prognoza_Wm2", "punkt",
+         "hour_sin", "hour_cos",
+         "day_sin", "day_cos",
+         "temperatura", "temperatura_24"]
+        + lag_cols
+        + error_lag_cols
+        + forecast_lag_cols
+        + rolling_cols
+    )
+
+    # 7. MODEL
     model = xgb.XGBRegressor(
-        n_estimators=5000, # Zmniejszone dla demo, w prod można dać więcej + early stopping
-        learning_rate=0.01, # Nieco wyższy dla szybszego zbiegania w v3
-        max_depth=7,
+        n_estimators=100000,
+        learning_rate=0.001,
+        max_depth=8,
+        reg_alpha=2.0,
+        reg_lambda=8.0,
         subsample=0.8,
         colsample_bytree=0.8,
         enable_categorical=True,
         tree_method="hist",
+        eval_metric="rmse",
+        n_jobs=-1,
         random_state=42,
-        early_stopping_rounds=100
+        early_stopping_rounds=1500
     )
 
     model.fit(
         train[features], train["Target"],
         eval_set=[(test[features], test["Target"])],
-        verbose=100
+        verbose=200
     )
 
     # 8. EVALUATION
     test = test.copy()
     test["Pred"] = test["Prognoza_Wm2"] + model.predict(test[features])
     test["Pred"] = test["Pred"].clip(0, 1500)
+
     rmse_b, nrmse_b = nrmse(test["Actual_Wm2"], test["Prognoza_Wm2"])
     rmse_m, nrmse_m = nrmse(test["Actual_Wm2"], test["Pred"])
-    logger.info(f"Baseline nRMSE: {nrmse_b:.2f}%, Model V3 nRMSE: {nrmse_m:.2f}% (Gain: {nrmse_m - nrmse_b:.2f} pp)")
 
-    # 9. FEATURE IMPORTANCE VISUALIZATION
-    logger.info("Generowanie wykresu istotności cech...")
-    plt.figure(figsize=(10, 15))
-    xgb.plot_importance(model, max_num_features=30, height=0.5)
-    plt.title("Top 30 Features - Model V3")
-    plt.savefig(str(Config.IMPORTANCE_PLOT_PATH))
-    plt.close()
+    print(f"\nBaseline nRMSE: {nrmse_b:.2f}%")
+    print(f"Model V3 nRMSE: {nrmse_m:.2f}%")
+    print(f"Gain: {(nrmse_m - nrmse_b):+.2f} pp")
 
-    # 10. SAVE
-    logger.info(f"Zapisywanie modelu i metadanych v3...")
-    model.save_model(str(Config.MODEL_PATH))
+    # 9. SAVE MODEL + META
+    model.save_model(MODEL_PATH)
+
     meta = {
-        "features": features,
-        "punkt_categories": list(df["punkt"].cat.categories),
-        "windows": rolling_windows,
-        "metrics": {"baseline_nrmse": float(nrmse_b), "model_nrmse": float(nrmse_m)}
+        "features":          features,
+        "punkt_categories":  list(df["punkt"].cat.categories),
+        "lags":              lags,
+        "error_lags":        error_lags,
+        "forecast_lags":     forecast_lags,
+        "windows":           rolling_windows,
+        "metrics": {
+            "baseline_nrmse": float(nrmse_b),
+            "model_nrmse":    float(nrmse_m)
+        }
     }
-    with open(Config.META_PATH, "w", encoding="utf-8") as f:
+
+    Path(os.path.dirname(META_PATH)).mkdir(parents=True, exist_ok=True)
+    with open(META_PATH, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2, ensure_ascii=False)
 
-    logger.info("=== MODEL V3 READY ===")
+    print("\n=== MODEL PRO 2026 V3 - READY FOR PRODUCTION ===\n")
+
 
 if __name__ == "__main__":
     main()
