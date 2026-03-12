@@ -25,22 +25,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------
 class Config:
     BASE_DIR = Path.cwd()
-    SQL_DIR = BASE_DIR / "SQL"
+
+    # ===== ZMIEŃ TĆ ŚCIŹKĘ NA SWOJĄ =====
+    SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
+    # =============================================
     SQL_PATH_PROGNOZA = SQL_DIR / "pogodajankins.sql"  # PRODUKCJA: używa najnowszej prognozy
     SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
 
     # Ścieżki do modelu i metadanych z wersji V3
-    INPUT_DIR = BASE_DIR / "output_v3"
+    INPUT_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1")
     MODEL_PATH = INPUT_DIR / "model_korekty_slonca_v3.json"
     META_PATH = INPUT_DIR / "model_meta_v3.json"
 
     # Katalog wyjściowy
-    OUTPUT_DIR = BASE_DIR / "OUT"
+    OUTPUT_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\OUT")
     
-    # Połączenia
+    # Połączenia (oryginalny serwer z Twojego skryptu)
     CONN_STR_BASE = (
         "DRIVER={ODBC Driver 17 for SQL Server};"
-        "Server=MISDWPPRD.GKPGE.PL;" # Zmieniłem na PROD wg Twojego kodu treningowego
+        "Server=MISDWHPRD.GKPGE.PL;"
         "Trusted_Connection=yes;"
     )
     

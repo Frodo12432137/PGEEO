@@ -26,12 +26,15 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------
 class Config:
     BASE_DIR = Path.cwd()
-    SQL_DIR = BASE_DIR / "SQL"
-    SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql" # Backtest używa historycznej bazy prognoz
+
+    # ===== ZMIEŃ TĆ ŚCIŹKĘ NA SWOJĄ =====
+    SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
+    # =============================================
+    SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql"  # Backtest używa historycznej bazy prognoz
     SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
 
     OUTPUT_DIR = BASE_DIR / "BACKTEST_RESULTS"
-    MODEL_INPUT_DIR = BASE_DIR / "output_v3"
+    MODEL_INPUT_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1")
     MODEL_PATH = MODEL_INPUT_DIR / "model_korekty_slonca_v3.json"
     META_PATH = MODEL_INPUT_DIR / "model_meta_v3.json"
 

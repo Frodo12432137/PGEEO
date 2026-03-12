@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------
 class Config:
     BASE_DIR = Path.cwd()
-    SQL_DIR = BASE_DIR / "SQL"
+
+    # ===== ZMIEŃ TĆ ŚCIŹKĘ NA SWOJĄ =====
+    SQL_DIR = Path(r"C:\Users\10200871\Desktop\PGEEO\PV1\SQL")
+    # =============================================
     SQL_PATH_PROGNOZA = SQL_DIR / "prognozapogody.sql"
     SQL_PATH_WYKONANIE = SQL_DIR / "wykonanie.sql"
 
