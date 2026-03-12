@@ -26,6 +26,7 @@ CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
     "Server=MISDWHPRD.GKPGE.PL;"
     "Trusted_Connection=yes;"
+    "TrustServerCertificate=yes;"
 )
 
 MIN_HISTORY_HOURS = 90 * 24
@@ -174,8 +175,8 @@ def main():
     df_prog = df_prog[["punkt", "datagodzinacet", "Prognoza_Wm2", "temperatura", "execid"]]
     df_prog = df_prog.rename(columns={"datagodzinacet": "dataGodzinaCET", "execid": "execId"})
 
-    # 178: # WYKONANIE
-    # 180: df_wyk = load_sql(SQL_PATH_WYKONANIE, "PGEEO_DDS")
+    # WYKONANIE
+    df_wyk = load_sql(SQL_PATH_WYKONANIE, "PGEEO_DDS")
     df_wyk.columns = [c.lower() for c in df_wyk.columns]
 
     df_wyk["data"] = df_wyk["data"].astype(str)

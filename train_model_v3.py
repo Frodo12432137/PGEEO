@@ -22,6 +22,7 @@ CONN_STR_PROGNOZA = (
     "Server=MISDWHPRD.GKPGE.PL;"
     "DATABASE=PGESA_MarketAnalytics;"
     "Trusted_Connection=yes;"
+    "TrustServerCertificate=yes;"
 )
 
 CONN_STR_WYKONANIE = (
@@ -29,6 +30,7 @@ CONN_STR_WYKONANIE = (
     "Server=MISDWHPRD.GKPGE.PL;"
     "DATABASE=PGEEO_DDS;"
     "Trusted_Connection=yes;"
+    "TrustServerCertificate=yes;"
 )
 
 # ==============================================================================
