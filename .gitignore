@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+
+# Outputs i modele (duże pliki)
+output/
+output_v3/
+OUT/
+BACKTEST_RESULTS/
+
+# Logi
+*.log
+
+# Pliki tymczasowe
+*.csv
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
